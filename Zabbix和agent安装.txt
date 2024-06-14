@@ -1,0 +1,376 @@
+cd /etc/sysconfig/network-scripts/
+ll
+ip a
+使用ip a
+查看自己是什么类型的我这的是ens160的
+编辑该文件，vi命令后接的是自己当前目录下的文件名 ci ifcfg-ens160
+vi ifcfg-ens160  <修改如下配置>
+BOOTPROTO=static
+ONBOOT=yes
+IPADDR=192.168.174.132
+NETMASK=255.255.255.0
+GATEWAY=192.168.174.2
+DNS1=114.114.114.114
+DNS2=8.8.8.8
+wq!  <保存退出>
+nmcli c reload 或是 systemctl restart NetworkManager  <重启网络>
+如果未生效就重启系统
+reboot
+nmcli connection show  或短格式：nmcli con show
+查看活动的网络连接：
+nmcli status
+nmcli device show
+
+Failure
+fatal
+
+部署zabbix5.0
+
+1、准备机器，环境初始化
+#  关闭防火墙
+systemctl disable --now firewalld
+getenforce
+setenforce 0
+sed -i "s/enforcing/permissive/g" /etc/selinux/config
+getenforce  <显示结果为Permissive，证明防火墙已临时关闭>
+iptables -L
+
+2、zabbix-server内存尽量更大点，4G为好
+
+
+3、获取zabbix5的下载源
+rpm -Uvh https://mirrors.aliyun.com/zabbix/zabbix/5.0/rhel/7/x86_64/zabbix-release-5.0-1.el7.noarch.rpm
+
+获取zabbix6.4的下载源
+rpm -Uvh https://mirrors.aliyun.com/zabbix/zabbix/6.4/rhel/7/x86_64/zabbix-release-6.4-1.el7.noarch.rpm
+
+
+
+ls /etc/yum.repos.d/
+ll
+在yum仓库里能看到zabbix的repo文件
+
+4、更换zabbix.repo源，为阿里源
+sed -i 's#http://repo.zabbix.com#https://mirrors.aliyun.com/zabbix#' /etc/yum.repos.d/zabbix.repo
+
+5、清空缓存，下载zabbix服务端
+yum clean all
+yum makecache
+
+yum -y install zabbix-server-mysql zabbix-agent
+
+6、安装工具，可以在机器上使用多个版本的软件，并且不会影响到整个系统的依赖环境
+yum -y install centos-release-scl
+cd /opt/rh
+ls /opt/rh
+
+
+7、修改zabbixzabbix-front前端源，修改如下参数
+vi /etc/yum.repos.d/zabbix.repo
+[zabbix-frontend]
+enabled=1 <将此项修改为1>
+
+
+8、安装zabbix前端环境，且是安装到scl环境下
+yum -y install zabbix-web-mysql-scl zabbix-apache-conf-scl
+
+ls /opt/rh
+
+
+9、安装zabbix所需的数据库，mariadb
+yum -y install mariadb-server
+
+
+10、配置数据库，开机启动
+systemctl enable --now mariadb
+systemctl status mariadb
+netstat -tunlp
+
+
+11、初始化数据库,设置密码
+mysql_se
+mysql_secure_installation
+
+# root的初始化数据库的密码：123456xu
+
+Enter current password for root (enter for none): Press Enter
+Switch to unix_socket authentication [Y/n] y   
+Change the root password? [Y/n] y
+New password: <Enter root DB password>             #设置新的密码 123456xu
+Re-enter new password: <Repeat root DB password>
+Remove anonymous users? [Y/n]: Y                   #删除anonymous账户
+Disallow root login remotely? [Y/n]: Y             #是否需要远程登录
+Remove test database and access to it? [Y/n]:  Y   #删除test库
+Reload privilege tables now? [Y/n]:  Y             #重新加载表
+
+
+12、添加数据库用户，以及zabbix所需的数据库
+mysql -uroot -p
+password
+show databases;
+
+
+
+    mysql> create database zabbix character set utf8 collate utf8_bin;
+MariaDB [(none)]> create database zabbix character set utf8 collate utf8_bin;
+Query OK, 1 row affected (0.00 sec)
+
+    mysql> create user zabbix@localhost identified by '123456xu'; #要设置的zabbix密码 :123456xu
+MariaDB [(none)]> create user zabbix@localhost identified by '123456xu';
+Query OK, 0 rows affected (0.00 sec)
+
+    mysql> grant all privileges on zabbix.* to zabbix@localhost;
+MariaDB [(none)]> grant all privileges on zabbix.* to zabbix@localhost;
+Query OK, 0 rows affected (0.00 sec)
+
+    mysql> flush privileges;
+MariaDB [(none)]> flush privileges;
+Query OK, 0 rows affected (0.00 sec)
+
+    mysql> exit;
+
+
+13、使用zabbix-mysql命令，导入数据库信息
+ls /usr/share/doc/zabbix-server-mysql*/create.sql.gz
+# mysql -u<username> -p <database_name>
+zcat /usr/share/doc/zabbix-server-mysql*/create.sql.gz | mysql -uzabbix -p zabbix 123456xu
+
+mysql -uzabbix -p123456xu
+show databases;
+use zabbix
+show tables;
+exit;
+
+
+14、修改zabbix server配置文件，修改数据库的密码
+vim /etc/zabbix/zabbix_server.conf
+
+DBPassword=123456xu
+wq!
+grep '^DBPa' /etc/zabbix/zabbix_server.conf
+DBPassword=123456xu
+
+
+15、修改zabbix的php配置文件
+    vim /etc/opt/rh/rh-php72/php-fpm.d/zabbix.conf
+timezone = <Asia/Shanghai>
+grep 'timezone' /etc/opt/rh/rh-php72/php-fpm.d/zabbix.conf
+php_value[date.timezone] = Asia/Shanghai
+
+
+16、启动zabbix相关服务器
+
+systemctl restart zabbix-server zabbix-agent nginx php-fpm
+systemctl enable zabbix-server zabbix-agent nginx php-fpm
+
+
+17、浏览器打开：http://192.168.1.67/zabbix
+
+18、安装成功后，默认密码
+Admin/zabbix
+
+
+部署zabbix客户端
+zabbix5.0版本
+agent2新版本采用golang语言开发的客户端
+由于是go语言开发，部署起来就很方便了，和之前的程序部署形式不一样了
+agent2默认用10050端口，也就是zabbix客户端的端口
+旧版本的客户端，zabbix-agent
+go语言新版本客户端，zabbix-agent2
+
+
+1、机器环境准备，2台zabbix客户端和一台服务端
+服务端：
+192.168.174.130
+客户端：
+192.168.174.131
+192.168.174.132
+
+
+2、注意时间正确
+
+Centos8 安装：yum install chrony -y
+Centos7 安装 ：yum install ntpdate -y
+ntpdate -u ntp.aliyun.com
+
+
+
+3、时区的统一配置
+mv /etc/localtime{,.bak}  <给localtime做备份>
+ln -s /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+<把自带的上海时区文件链接到这里来>
+
+
+具体的zabbix-agent2部署流程
+提前配置好zabbix的yum源，参考服务端的配置yum源
+
+
+Centos8更换zabbix下载源
+rpm -Uvh https://mirrors.aliyun.com/zabbix/zabbix/6.4/rhel/8/x86_64/zabbix-release-6.4-1.el8.noarch.rpm
+
+
+Centos8更换zabbix-agent2的下载源
+rpm -Uvh https://mirrors.aliyun.com/zabbix/zabbix/6.4/rhel/8/x86_64/zabbix-agent2-6.4.1-release1.el8.x86_64.rpm
+
+rpm -Uvh https://mirrors.aliyun.com/zabbix/zabbix/6.4/rhel/8/x86_64/zabbix-agent2-6.4.10-release1.el8.x86_64.rpm
+
+
+
+Centos7更换zabbix6的yum源
+rpm -Uvh https://mirrors.aliyun.com/zabbix/zabbix/6.4/rhel/7/x86_64/zabbix-release-6.4-1.el7.noarch.rpm
+
+
+sed -i 's#http://repo.zabbix.com#https://mirrors.aliyun.com/zabbix#' /etc/yum.repos.d/zabbix.repo
+
+yum -y install zabbix-agent2
+
+查看配置文件
+cat /etc/zabbix/zabbix_agent2.conf
+启动命令
+ls -l /usr/sbin/zabbix_agent2
+启动agent2客户端
+systemctl enable --now zabbix-agent2
+
+netstat -tnlp | grep zabbix
+
+
+ls /lib/systemd/system/   <y>
+ls /lib/systemd/system/zabbix-agent2.service
+cat /lib/systemd/system/zabbix-agent2.service
+
+grep -Ev '^#|^$' /etc/zabbix/zabbix_agent2.conf
+
+查看agent2的进程ID
+cat /var/run/zabbix/zabbix_agent2.pid
+
+ps -ef | grep zabbix2
+ps -ef | grep zabbix
+
+查看配置信息，根据自己的机器环境修改
+grep -Ev '^#|^$' /etc/zabbix/zabbix_agent2.conf
+
+vim /etc/zabbix/zabbix_agent2.conf
+192.168.174.130
+
+192.168.174.131
+192.168.174.132
+
+Server=<服务端IP>
+ServerActive=<服务端IP>
+Hostname=<hostname>
+hostnamectl set-hostname <计算机名>
+Include=/etc/zabbix/zabbix_agent2.d/*.conf
+
+hs131.localdomain
+hs132.localdomain
+
+进行重启zabbix_agent2服务
+systemctl restart zabbix-agent2
+
+验证zabbix-agent2的连通性
+1，在服务端上通过命令，主动获取数据
+yum -y install zabbix-get
+zabbix_get -s '192.168.174.131' -p 10050 -k 'agent.ping'
+zabbix_get -s '192.168.174.131' -p 10050 -k 'system.hostname'
+
+2,命令检测服务端是否连接上客户端
+zabbix_get -s '192.168.174.130' -p 10050 -k 'system.hostname'
+Centos8防火墙放行命令
+sudo firewall-cmd --permanent --add-port=10050/tcp
+sudo firewall-cmd --permanent --add-port=10051/tcp
+sudo firewall-cmd --reload
+
+Centos7.9防火墙放行命令
+sudo firewall-cmd --zone=public --add-port=10050/tcp --permanent
+sudo firewall-cmd --zone=public --add-port=10051/tcp --permanent
+sudo firewall-cmd --reload
+
+
+
+解决zabbix-server查看乱码问题
+zabbix默认检测了服务端本身，但是编码有问题
+安装字体
+yum -y install wqy-microhei-fonts
+\cp /usr/share/fonts/wqy-microhei/wqy-microhei.ttc /usr/share/fonts/dejavu/DejaVuSans.ttf
+
+
+自定义监控内容
+监控服务器登录人数
+需求：限制登录人数不超过三个，超过三个就发出报警信息
+先从命令行角度： who
+1,查看zabbix自带的检查key
+zabbix_get -s 'IP' -p 10050 -k 'agent.ping'
+zabbix_get -s '<本机IP>' -p 10050 -k 'system.uname'
+zabbix_get -s '<本机IP>' -p 10050 -k 'system.hostname'
+zabbix_get -s '<本机IP>' -p 10050 -k 'login.user'
+zabbix_get -s '<本机IP>' -p 10050 -k 'vfs.fs.size[/boot,used]'
+zabbix_get -s '<本机IP>' -p 10050 -k 'vfs.fs.size[/,used]'
+zabbix_get -s '<本机IP>' -p 10050 -k 'vfs.fs.size[/www,used]'
+zabbix_get -s '<本机IP>' -p 10050 -k 'vfs.fs.size[/,total]'
+
+首先明确要执行的命令
+who | wc -l
+
+2、手动创建zabbix配置文件，用于自定义key
+vi  /etc/zabbix/zabbix_agent2.conf
+cd /etc/zabbix/zabbix_agent2.d/
+
+3、创建自定义配置文件，内容如下：
+vim userparameter_login.conf
+
+UserParameter=login.user,who | wc -l
+wq!
+
+systemctl restart zabbix-agent2
+systemctl status zabbix-agent2
+
+zabbix_get -s '192.168.1.56' -p 10050 -k 'login.user'
+
+
+192.168.174.130
+
+192.168.174.131
+192.168.174.132
+
+
+
+添加自定义监控项模板
+添加流程：
+创建模板
+创建应用集（好比是一个文件夹，里面放入一堆监控项）
+创建监控项，自定义item,你具体想监控的内容
+创建触发器，当监控项获取到值的时候，进行和触发器比较，判断，决定是否报警
+创建图形
+将具体的主机和该模板链接，关联。
+
+监控服务器登录的人数
+
+配置-主机-
+先不着急填写主机名称
+先点击模板-创建模板-关联模板-选择这个模板“Template OS Linux by Zabbix-agent”
+主机-主机名称（zbx-agent04）-可见的名称：（zbx-agent04+IP）
+群组：选择（Linux servers）这个群组
+
+
+自动发现，自动注册
+自动发现
+zabbix 服务端主动去发现客户端，将客户端的信息登记在服务端的机器上
+缺点是zabbix服务端压力会很大
+定义了一个网段100-200网段，耗时较长，且压力大
+
+自动注册
+
+zabbix-agent2主动上报自己的信息，发给zabbix-server
+zabbix-agent2可能找不到server(配置文件写错了，网络不通)
+
+被动模式主动模式的区别（站在agent2立场）
+被动模式对于agent2来说，就是server来找agent2拿数据
+主动模式agent2主动把数据发给server
+
+配置host解析
+
+自动发现配置
+
+
+
